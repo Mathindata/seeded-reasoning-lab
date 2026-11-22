@@ -51,6 +51,18 @@ more problems than 8 plain? All comparisons are paired by problem with 95% boots
 
 A null result on prediction 3 is a valid result and will be reported as such.
 
+## Changes after the pilot (30 problems, k = 4)
+
+The pilot was used only to check the pipeline; its accuracy numbers are too noisy to read
+(about +/-0.09 per condition). Two problems were fixed before the main run:
+
+1. 16% of responses hit the 1,024-token limit before giving an answer. `max_tokens` is now 2,048.
+2. Strategies often repeated the seed's imagery ("taste the problem as you go") instead of a math
+   move. The coach prompt now asks for plain mathematical terms without the seed's words. The
+   change applies to every translated condition, including the noise control.
+
+The predictions above were not changed.
+
 ## Run it
 
 Kaggle (T4 x2, Internet on): `notebooks/run_kaggle.ipynb`. Local:
@@ -64,7 +76,7 @@ python -m sr analyze --run runs/main
 ```
 
 Compute: the main run is 9,600 solve generations (up to 1,024 tokens) plus 6,400 short
-strategy generations. Speed is measured in the pilot; the run resumes where it stopped.
+strategy generations (solve outputs up to 2,048 tokens). Speed is measured in the pilot; the run resumes where it stopped.
 Every generation (seed, strategy, full response, tokens, correctness) is logged to
 `runs/*/results.jsonl`.
 

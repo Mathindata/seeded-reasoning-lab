@@ -3,8 +3,12 @@
   "backend": "vllm",
   "benchmark": "math500",
   "n_problems": 200,
-  "levels": [3, 4, 5],
+  "levels": [
+    3,
+    4,
+    5
+  ],
   "k_samples": 8,
-  "max_tokens": 1024,
+  "max_tokens": 2048,
   "out_dir": "runs/main"
 }

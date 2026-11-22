@@ -30,8 +30,9 @@ CONDITIONS = {
 def translate_messages(problem: str, domain: str, seed: str) -> list[dict]:
     user = (f"Here is a problem:\n{problem}\n\n"
             f"Here is an idea from {domain}: \"{seed}\"\n\n"
-            "In one or two sentences, describe a general problem-solving move that this idea "
-            "suggests for this problem. Do not solve the problem and do not compute anything.")
+            "In one or two sentences, state a general problem-solving move that this idea "
+            "suggests for this problem. Say it in plain mathematical terms, without reusing the "
+            "words or images of the idea. Do not solve the problem and do not compute anything.")
     return [{"role": "system", "content": COACH_SYSTEM}, {"role": "user", "content": user}]
 
 

@@ -4,6 +4,6 @@
   "benchmark": "game24",
   "n_problems": 100,
   "k_samples": 8,
-  "max_tokens": 768,
+  "max_tokens": 1536,
   "out_dir": "runs/game24"
 }
