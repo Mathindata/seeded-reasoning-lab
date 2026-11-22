@@ -1,0 +1,15 @@
+{
+  "tau": -0.17241702765277803,
+  "m": 2,
+  "max_injections": 2,
+  "cooldown": 2,
+  "p_random": 0.04766474728087012,
+  "answers": 676,
+  "share_answers_triggered": 0.1997041420118343,
+  "injections_per_answer": 0.22041420118343194,
+  "calib_accuracy": 0.42011834319526625,
+  "auroc_min_conf_predicts_wrong": 0.7066685829261282,
+  "auroc_mean_conf_predicts_wrong": 0.6114095286001725,
+  "accuracy_if_rule_would_fire": 0.21481481481481482,
+  "accuracy_if_rule_silent": 0.4713493530499076
+}

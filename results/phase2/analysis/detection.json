@@ -1,0 +1,6 @@
+{
+  "auroc_min_conf": 0.740109293828302,
+  "auroc_mean_conf": 0.6328430522645399,
+  "accuracy_if_rule_fires": 0.19937694704049844,
+  "accuracy_if_rule_silent": 0.5241488519398259
+}

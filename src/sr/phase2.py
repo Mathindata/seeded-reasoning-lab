@@ -265,3 +265,83 @@ def _plot(eff: pd.DataFrame, out: Path) -> None:
     fig.tight_layout()
     fig.savefig(out / "injection_effects.png", dpi=150)
     plt.close(fig)
+
+
+# ---------------- follow-up checks (added after the Phase 2 run, see README) ----------------
+def _pairs(df: pd.DataFrame, cond: str):
+    base = df[df["condition"] == "seg_plain"].set_index(["id", "sample"])
+    x = df[df["condition"] == cond].set_index(["id", "sample"])
+    x = x.loc[x.index.intersection(base.index)]
+    b = base.loc[x.index]
+    inj = (x["n_injections"] > 0).to_numpy()
+    same = np.array([bool(r["n_injections"]) and r["injections"][0]["seg"] < len(b.loc[i, "seg_hashes"])
+                     and b.loc[i, "seg_hashes"][r["injections"][0]["seg"]] == r["prefix_hash"]
+                     for i, r in x.iterrows()])
+    return x, b, inj, same
+
+
+def extra_checks(run_dir: str, n_boot: int = 3000, seed: int = 1) -> dict:
+    out = Path(run_dir) / "analysis"
+    df = pd.read_json(Path(run_dir) / "results.jsonl", lines=True)
+    df["correct"] = df["correct"].astype(float)
+    df["no_answer"] = df["pred"].eq("")
+    conds = [c for c in CONDITIONS2 if c != "seg_plain" and c in set(df["condition"])]
+    rows = []
+    for c in conds:
+        x, b, inj, same = _pairs(df, c)
+        xi, bi = x[inj], b[inj]
+        g = np.array([i[0] for i in xi.index])
+        d = (xi["correct"] - bi["correct"]).to_numpy()
+        keep = (~xi["truncated"].to_numpy(bool)) & (~bi["truncated"].to_numpy(bool))
+        e_same = _boot_mean(d[same[inj]], g[same[inj]], n_boot, seed)
+        e_nt = _boot_mean(d[keep], g[keep], n_boot, seed)
+        rows.append({
+            "condition": c, "injected": int(inj.sum()),
+            "rescues": int(((bi["correct"] == 0) & (xi["correct"] == 1)).sum()),
+            "breaks": int(((bi["correct"] == 1) & (xi["correct"] == 0)).sum()),
+            "truncated_without": bi["truncated"].mean(), "truncated_with": xi["truncated"].mean(),
+            "no_answer_without": bi["no_answer"].mean(), "no_answer_with": xi["no_answer"].mean(),
+            "tokens_without": bi["gen_tokens"].mean(), "tokens_with": xi["gen_tokens"].mean(),
+            "effect_identical_prefix": e_same[0], "ip_lo": e_same[1], "ip_hi": e_same[2],
+            "n_identical_prefix": int(same[inj].sum()),
+            "effect_not_truncated": e_nt[0], "nt_lo": e_nt[1], "nt_hi": e_nt[2],
+            "n_not_truncated": int(keep.sum())})
+    checks = pd.DataFrame(rows)
+
+    # content: each seeded condition vs generic, on answers injected in both, identical prefixes
+    gx, _, ginj, gsame = _pairs(df, "ctrl_generic")
+    content = []
+    for c in ["ctrl_noise", "ctrl_near", "ctrl_far"]:
+        x, _, inj, same = _pairs(df, c)
+        idx = x.index.intersection(gx.index)
+        ok = (pd.Series(ginj & gsame, index=gx.index).loc[idx]
+              & pd.Series(inj & same, index=x.index).loc[idx])
+        both = idx[ok.to_numpy()]
+        d = (x.loc[both, "correct"] - gx.loc[both, "correct"]).to_numpy()
+        e = _boot_mean(d, np.array([i[0] for i in both]), n_boot, seed)
+        content.append({"condition": c, "vs": "ctrl_generic", "n": len(both), "diff": e[0],
+                        "ci_lo": e[1], "ci_hi": e[2]})
+    content = pd.DataFrame(content)
+
+    # timing: per-injection effect of ctrl_near minus rand_near (cluster bootstrap over problems)
+    def per_inj(c):
+        x, b, inj, _ = _pairs(df, c)
+        d = (x["correct"] - b["correct"])[inj]
+        return {p: grp.to_numpy() for p, grp in d.groupby(level=0)}
+    a, r = per_inj("ctrl_near"), per_inj("rand_near")
+    ids = np.union1d(list(a), list(r))
+    rng = np.random.default_rng(seed)
+    est = np.concatenate(list(a.values())).mean() - np.concatenate(list(r.values())).mean()
+    bs = []
+    for _ in range(n_boot):
+        pick = rng.choice(ids, len(ids))
+        aa = [a[p] for p in pick if p in a]
+        rr = [r[p] for p in pick if p in r]
+        bs.append(np.concatenate(aa).mean() - np.concatenate(rr).mean())
+    timing = {"ctrl_near_minus_rand_near": float(est), "ci_lo": float(np.percentile(bs, 2.5)),
+              "ci_hi": float(np.percentile(bs, 97.5))}
+
+    checks.to_csv(out / "checks_by_condition.csv", index=False)
+    content.to_csv(out / "content_vs_generic.csv", index=False)
+    json.dump(timing, open(out / "timing.json", "w"), indent=2)
+    return {"checks": checks, "content": content, "timing": timing}

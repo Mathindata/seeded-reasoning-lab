@@ -6,10 +6,10 @@ in Daoism, cooking or martial arts, does it solve more math problems than with a
 heuristic, a physics principle, or random words? And does the *distance* of the source
 field matter, once the extra step and extra tokens are controlled for?
 
-> Status: Phase 1 is done. Result: a clean null. A one-sentence strategy at the start does not
-> help, whatever field it comes from. Predictions were written before the run (see git history);
-> results and verdicts are below. Phase 2 (confidence-triggered injection) is designed, tested
-> and pre-registered below; its run is next.
+> Status: Phases 1 and 2 are done, each with predictions written before the run (see git
+> history). Phase 1: a strategy at the start does not help. Phase 2: the model's confidence does
+> flag wrong answers, but inserting a strategy at that moment makes things worse. Results and
+> verdicts are below.
 
 ## Design
 
@@ -164,6 +164,68 @@ before the test run. Test set: the same 198 problems as Phase 1, k = 8.
 Outputs: `analysis/effects.csv` (effects with cluster bootstrap intervals over problems),
 `pairing_check.csv`, `detection.json`, `injection_effects.png`.
 
+## Phase 2 results
+
+Same 198 test problems as Phase 1, 6 conditions x 8 samples = 9,504 answers, nothing missing.
+Calibration on the 169 held-out problems (k = 4, 676 answers): tau = -0.172 (mean token
+log-probability per segment); the rule fires on 20% of answers; the random-timing rate is 0.048
+per segment, which matched it (20% of answers injected in every injection condition).
+Pairing check: the text was identical to `seg_plain` up to the first injection for 90% (`ctrl_far`,
+`rand_near`) to 97.5% (`ctrl_generic`) of injected answers; every effect below holds when
+restricted to those. Full log and tables: `results/phase2/`.
+
+| Condition | pass@1 (all answers) | Answers injected | Tokens | Truncated |
+|---|---|---|---|---|
+| seg_plain | 0.458 | 0% | 669 | 2.8% |
+| ctrl_generic | 0.451 | 20.1% | 717 | 4.5% |
+| ctrl_noise | 0.447 | 20.2% | 700 | 3.7% |
+| ctrl_near | 0.447 | 20.3% | 698 | 3.6% |
+| ctrl_far | 0.444 | 20.3% | 706 | 3.7% |
+| rand_near | 0.446 | 20.3% | 690 | 2.6% |
+
+Effect on the answers that got an injection, each compared with the same answer without it
+(95% cluster bootstrap over problems):
+
+<img src="docs/figures/phase2_injection_effects.png" alt="Effect of injection" width="80%">
+
+| Condition | Accuracy without -> with injection | Difference (95% CI) | Rescues / breaks |
+|---|---|---|---|
+| ctrl_generic | 0.194 -> 0.163 | -0.031 (-0.080 to +0.016) | 22 / 32 |
+| ctrl_noise | 0.194 -> 0.128 | -0.066 (-0.111 to -0.024) | 15 / 36 |
+| ctrl_near | 0.190 -> 0.125 | -0.065 (-0.117 to -0.019) | 15 / 36 |
+| ctrl_far | 0.193 -> 0.118 | -0.075 (-0.126 to -0.026) | 13 / 37 |
+| rand_near | 0.301 -> 0.245 | -0.056 (-0.105 to -0.006) | 25 / 43 |
+
+**Verdicts on the predictions**
+
+| Prediction | Result | Verdict |
+|---|---|---|
+| 4. Confidence flags wrong answers | AUROC of the lowest segment confidence 0.740 on the test set (0.707 on calibration); accuracy 0.199 when the rule fires vs 0.524 when silent | confirmed |
+| 5. Interrupting alone changes accuracy by less than 5 points | -0.031 (-0.080 to +0.016) | consistent, but the interval does not rule out a larger loss |
+| 6. Strategy content does not matter (within 5 points of generic) | on the same answers, noise -0.040 (-0.091 to +0.010), near -0.037 (-0.085 to +0.004), far -0.049 (-0.098 to -0.004) vs generic | partly wrong: the source field does not matter, but adding a strategy is worse than a plain "rethink" |
+| 7. Timing matters (`ctrl_near` gains more than `rand_near`) | difference per injection -0.010 (-0.070 to +0.057) | not supported: both hurt about equally |
+
+**What goes wrong.** The model does follow the inserted strategy, and that is the problem.
+Breaks outnumber rescues 2.4 to 2.8 times for every seeded condition. Answers get longer after an
+injection (about 765 to 925-955 tokens for seeded strategies, 761 to 1,007 for generic), and more of
+them end without an answer (about 4% to 10-15%). But running out of tokens is not the main cause:
+among answers that were not truncated, the loss is the same (near -0.074, -0.127 to -0.025).
+Reading the logs, a typical break is a strategy that carries the seed's framing into the math
+("...particularly in the context of minimizing a quantity, as hinted by the physics idea"),
+and the model then solves a different problem. The 1.5B coach does not fully obey the instruction
+to drop the seed's words. Typical rescues are plain math moves ("factor the numerator and
+denominator").
+
+**What this means.** The detector half of the controller works: the model's own confidence finds
+the answers that are going wrong (accuracy 0.20 vs 0.52). The remedy half does not: adding text to
+a failing chain of thought makes a 1.5B model worse, whatever the text and wherever the idea
+comes from. The next step keeps the detector and changes the remedy: when the rule fires, go back
+to an earlier point and resample, instead of adding text (see Roadmap).
+
+Follow-up checks were added after the run and are reported as such:
+`results/phase2/analysis/checks_by_condition.csv`, `content_vs_generic.csv`, `timing.json`
+(`python -c "from sr.phase2 import extra_checks; extra_checks('runs/phase2')"`).
+
 ## Run it
 
 Kaggle (T4 x2, Internet on): `notebooks/run_kaggle.ipynb`. Local:
@@ -191,12 +253,15 @@ Every generation (seed, strategy, full response, tokens, correctness) is logged 
 ## Roadmap
 
 1. **Static seeds**: done, null result (above).
-2. **Controller** (designed and tested, run next): every k reasoning steps, check the model's confidence (mean token
-   log-probability); if it stays low for m checks, switch to a new seed (hysteresis, so it does
-   not switch back and forth). Sweep k: switching too often is known to hurt (Wang et al., 2025).
-3. **Learned seed choice**: a bandit that picks the seed bank from problem features, using the
-   per-seed table in `analysis/seeds.csv`.
-4. **Abandoned branches**: log the paths the controller leaves and study what carries over into
+2. **Controller with text injection**: done (above). Confidence detects failing answers;
+   injecting text at that moment hurts.
+3. **Backtrack and resample** (next): when the rule fires, discard the last segments and
+   resample from an earlier checkpoint with a new random seed, keeping the branch whose confidence
+   recovers. Same detector, different remedy; compare against resampling the whole answer at the
+   same total token budget.
+4. **Stronger model**: repeat Phases 1 to 3 with a larger Qwen model, to see whether a model that
+   can use advice benefits from it.
+5. **Abandoned branches**: study the discarded branches from Phase 3 and what carries over into
    the final answer.
 
 ## Related work

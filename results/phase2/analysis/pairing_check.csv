@@ -1,0 +1,6 @@
+condition,injected,identical_prefix_share
+ctrl_generic,319,0.9749216300940439
+ctrl_noise,320,0.940625
+ctrl_near,321,0.9190031152647975
+ctrl_far,321,0.9003115264797508
+rand_near,322,0.8975155279503105

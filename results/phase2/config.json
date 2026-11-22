@@ -1,0 +1,60 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "backend": "vllm",
+  "levels": [
+    3,
+    4,
+    5
+  ],
+  "n_test": 200,
+  "k_samples": 8,
+  "calib_k": 4,
+  "n_calib": 0,
+  "conditions": [
+    "seg_plain",
+    "ctrl_generic",
+    "ctrl_noise",
+    "ctrl_near",
+    "ctrl_far",
+    "rand_near"
+  ],
+  "seg_tokens": 128,
+  "max_tokens": 2048,
+  "translate_max_tokens": 96,
+  "temperature": 0.7,
+  "top_p": 0.95,
+  "tau_quantile": 0.2,
+  "m": 2,
+  "max_injections": 2,
+  "cooldown": 2,
+  "seed": 20261122,
+  "out_dir": "runs/phase2",
+  "calibration_file": "runs/phase2_calib/calibration.json",
+  "chunk": 512,
+  "shard": 0,
+  "n_shards": 1,
+  "max_model_len": 4096,
+  "gpu_memory_utilization": 0.85,
+  "tensor_parallel_size": 1,
+  "hf_batch_size": 16,
+  "prefix_caching": true,
+  "calibration": {
+    "tau": -0.17241702765277803,
+    "m": 2,
+    "max_injections": 2,
+    "cooldown": 2,
+    "p_random": 0.04766474728087012,
+    "answers": 676,
+    "share_answers_triggered": 0.1997041420118343,
+    "injections_per_answer": 0.22041420118343194,
+    "calib_accuracy": 0.42011834319526625,
+    "auroc_min_conf_predicts_wrong": 0.7066685829261282,
+    "auroc_mean_conf_predicts_wrong": 0.6114095286001725,
+    "accuracy_if_rule_would_fire": 0.21481481481481482,
+    "accuracy_if_rule_silent": 0.4713493530499076
+  },
+  "merged_from": [
+    "runs/phase2_s0",
+    "runs/phase2_s1"
+  ]
+}
