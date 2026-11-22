@@ -8,7 +8,8 @@ field matter, once the extra step and extra tokens are controlled for?
 
 > Status: Phase 1 is done. Result: a clean null. A one-sentence strategy at the start does not
 > help, whatever field it comes from. Predictions were written before the run (see git history);
-> results and verdicts are below. Phase 2 (confidence-triggered injection) is next.
+> results and verdicts are below. Phase 2 (confidence-triggered injection) is designed, tested
+> and pre-registered below; its run is next.
 
 ## Design
 
@@ -113,17 +114,74 @@ The pilot was used only to check the pipeline; its accuracy numbers are too nois
 
 The predictions above were not changed.
 
+## Phase 2: inject the strategy when the model is unsure
+
+**Question.** Phase 1 put the strategy at the start. Does a strategy help when it arrives at the
+moment the model's own confidence drops, and does the source of the strategy matter then?
+
+**How it works** (`src/sr/controller.py`). The model writes its answer in segments of 128 tokens.
+After each segment, confidence = mean log-probability of the segment's tokens (near 0: sure of
+every token; very negative: unsure). A rule with hysteresis, like a Schmitt trigger, fires after
+2 consecutive segments below a threshold tau, at most 2 times per answer, with a 2-segment
+cooldown. When it fires, the half-written line is cut and the model continues after
+"Wait, this might not be the right path. Let me rethink the problem with a different strategy: ...".
+
+| Condition | When | What is inserted |
+|---|---|---|
+| `seg_plain` | never | nothing (control; also logs when the rule *would* fire) |
+| `ctrl_generic` | rule fires | "Let me rethink the problem." with no strategy |
+| `ctrl_noise` | rule fires | strategy translated from random words |
+| `ctrl_near` | rule fires | strategy translated from a physics, engineering or CS idea |
+| `ctrl_far` | rule fires | strategy translated from a far-field idea |
+| `rand_near` | random moments, same average rate | near-domain strategy (tests whether timing matters) |
+
+**Paired by construction.** Segment s of sample j of problem p uses the same random seed in every
+condition, so all conditions write the same text until the first injection. The four `ctrl_*`
+conditions even fire at the same moment on the same answers. The effect of an injection is then
+measured answer by answer against the same answer without it (`seg_plain`), a much sharper test
+than Phase 1. The analysis checks how often the text really was identical before the injection.
+
+**Calibration on held-out problems.** tau is the 20th percentile of segment confidences, measured
+on the MATH-500 problems of levels 3 to 5 that are not in the test set (k = 4). The random-timing
+rate is set on the same data so that random timing injects as often as the rule. Both are fixed
+before the test run. Test set: the same 198 problems as Phase 1, k = 8.
+
+### Phase 2 predictions (written before calibration and before the run)
+
+4. **Confidence flags wrong answers.** On the test set, the lowest segment confidence of an answer
+   predicts that the answer is wrong with AUROC above 0.65, and answers where the rule fires are
+   much less accurate than answers where it stays silent.
+5. **Interrupting alone does little.** On the answers where it fires, `ctrl_generic` changes
+   accuracy by less than 5 points compared with the same answers without injection.
+6. **Content still does not matter.** On the same injected answers, `ctrl_noise`, `ctrl_near` and
+   `ctrl_far` are within 5 points of `ctrl_generic`. This is what Phase 1 suggests.
+7. **Timing matters** (the controller's main claim; we give it even odds). Per injected answer,
+   `ctrl_near` gains more than `rand_near`. Caveat stated in advance: answers flagged by the rule
+   start with lower accuracy, so they have more room to improve and less to lose than randomly
+   chosen ones. If `ctrl_generic` gains as much as `ctrl_near`, the gain is about when to
+   interrupt, not about the strategy.
+
+Outputs: `analysis/effects.csv` (effects with cluster bootstrap intervals over problems),
+`pairing_check.csv`, `detection.json`, `injection_effects.png`.
+
 ## Run it
 
 Kaggle (T4 x2, Internet on): `notebooks/run_kaggle.ipynb`. Local:
 
 ```bash
 pip install -e ".[dev,vllm]"          # or [hf] if vLLM does not run on your GPU
-pytest -q                             # 8 tests, uses a mock model
+pytest -q                             # 14 tests, use mock models
 python -m sr run --config configs/pilot.json      # 30 problems, k = 4
 python -m sr run --config configs/main.json       # 200 problems, k = 8
 python -m sr analyze --run runs/main
+# Phase 2
+python -m sr p2-calibrate --config configs/phase2_calib.json
+python -m sr p2-run --config configs/phase2_s0.json     # and phase2_s1.json on the second GPU
+python -m sr merge --runs runs/phase2_s0 runs/phase2_s1 --out runs/phase2
+python -m sr p2-analyze --run runs/phase2
 ```
+
+Kaggle notebooks: `notebooks/run_kaggle.ipynb` (Phase 1), `notebooks/phase2_kaggle.ipynb` (Phase 2).
 
 Compute: the main run is 9,600 solve generations (up to 1,024 tokens) plus 6,400 short
 strategy generations (solve outputs up to 2,048 tokens). Speed is measured in the pilot; the run resumes where it stopped.
@@ -132,8 +190,8 @@ Every generation (seed, strategy, full response, tokens, correctness) is logged 
 
 ## Roadmap
 
-1. **Static seeds** (this repo): does the source of the idea matter?
-2. **Controller**: every k reasoning steps, check the model's confidence (mean token
+1. **Static seeds**: done, null result (above).
+2. **Controller** (designed and tested, run next): every k reasoning steps, check the model's confidence (mean token
    log-probability); if it stays low for m checks, switch to a new seed (hysteresis, so it does
    not switch back and forth). Sweep k: switching too often is known to hurt (Wang et al., 2025).
 3. **Learned seed choice**: a bandit that picks the seed bank from problem features, using the

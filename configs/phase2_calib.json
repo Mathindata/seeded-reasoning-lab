@@ -1,0 +1,21 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "backend": "vllm",
+  "levels": [
+    3,
+    4,
+    5
+  ],
+  "n_test": 200,
+  "k_samples": 8,
+  "calib_k": 4,
+  "seg_tokens": 128,
+  "max_tokens": 2048,
+  "tau_quantile": 0.2,
+  "m": 2,
+  "max_injections": 2,
+  "cooldown": 2,
+  "calibration_file": "runs/phase2_calib/calibration.json",
+  "prefix_caching": true,
+  "out_dir": "runs/phase2_calib"
+}
