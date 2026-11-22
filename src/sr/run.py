@@ -35,6 +35,8 @@ class Config:
     gpu_memory_utilization: float = 0.85
     tensor_parallel_size: int = 1
     hf_batch_size: int = 16
+    shard: int = 0                        # run problems shard, shard + n_shards, ... (one per GPU)
+    n_shards: int = 1
 
     @classmethod
     def load(cls, path: str) -> "Config":
@@ -76,6 +78,7 @@ def run(cfg: Config, backend, items: list[dict] | None = None, log=print) -> Pat
     out.mkdir(parents=True, exist_ok=True)
     json.dump(asdict(cfg), open(out / "config.json", "w"), indent=2)
     items = items or load_problems(cfg)
+    items = items[cfg.shard::cfg.n_shards]
     json.dump(items, open(out / "problems.json", "w"), indent=1)
     by_id = {it["id"]: it for it in items}
 
@@ -116,3 +119,25 @@ def run(cfg: Config, backend, items: list[dict] | None = None, log=print) -> Pat
         log(f"  {done_n}/{len(jobs)} done, {rate:.1f} gen/s, "
             f"~{(len(jobs) - done_n) / max(rate, 1e-9) / 60:.0f} min left")
     return res_path
+
+
+def merge(run_dirs: list[str], out_dir: str) -> Path:
+    """Combine shard runs (e.g. one per GPU) into one run directory for analysis."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    rows, items, seen = [], [], set()
+    for d in run_dirs:
+        items += json.load(open(Path(d) / "problems.json"))
+        for line in open(Path(d) / "results.jsonl"):
+            r = json.loads(line)
+            key = (r["id"], r["condition"], r["sample"])
+            if key not in seen:
+                seen.add(key)
+                rows.append(line if line.endswith("\n") else line + "\n")
+    json.dump(items, open(out / "problems.json", "w"), indent=1)
+    cfg = json.load(open(Path(run_dirs[0]) / "config.json"))
+    cfg.update({"shard": 0, "n_shards": 1, "out_dir": str(out), "merged_from": run_dirs})
+    json.dump(cfg, open(out / "config.json", "w"), indent=2)
+    with open(out / "results.jsonl", "w") as f:
+        f.writelines(rows)
+    return out

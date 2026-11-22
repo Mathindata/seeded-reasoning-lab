@@ -6,17 +6,21 @@ import pandas as pd
 
 from .analyze import analyze
 from .backends import make_backend
-from .run import Config, run
+from .run import Config, merge, run
 
 
 def main():
     ap = argparse.ArgumentParser(prog="sr")
-    ap.add_argument("cmd", choices=["run", "analyze"])
+    ap.add_argument("cmd", choices=["run", "analyze", "merge"])
+    ap.add_argument("--runs", nargs="*", default=[], help="shard run directories to merge")
+    ap.add_argument("--out", default="runs/main", help="merged run directory")
     ap.add_argument("--config", default="configs/pilot.json")
     ap.add_argument("--run", default=None, help="run directory for analyze")
     ap.add_argument("--backend", default=None, help="override: vllm | hf | mock")
     ap.add_argument("--model", default=None, help="override the model name")
     a = ap.parse_args()
+    if a.cmd == "merge":
+        a.run = str(merge(a.runs, a.out))
     if a.cmd == "run":
         cfg = Config.load(a.config)
         cfg.backend = a.backend or cfg.backend

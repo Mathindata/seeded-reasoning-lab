@@ -108,3 +108,23 @@ def test_math_checker_equivalence():
     assert data.check_math("\\boxed{0.5}", "\\frac{1}{2}")
     assert not data.check_math("\\boxed{3}", "4")
     assert data.last_boxed("a \\boxed{\\frac{1}{2}} b") == "\\frac{1}{2}"
+
+
+def test_shards_cover_all_problems_once_and_merge(tmp_path):
+    from sr.analyze import analyze
+    from sr.run import merge
+    items = fake_items(10)
+    answers = {it["problem"]: it["answer"] for it in items}
+    dirs = []
+    for s in (0, 1):
+        cfg = Config(backend="mock", k_samples=2, out_dir=str(tmp_path / f"s{s}"), shard=s,
+                     n_shards=2)
+        run(cfg, MockBackend(s, answers), items, log=lambda *a: None)
+        dirs.append(cfg.out_dir)
+    ids = [json.load(open(f"{d}/problems.json")) for d in dirs]
+    a, b = {i["id"] for i in ids[0]}, {i["id"] for i in ids[1]}
+    assert not a & b and a | b == {it["id"] for it in items}
+    out = merge(dirs, str(tmp_path / "main"))
+    rows = open(out / "results.jsonl").readlines()
+    assert len(rows) == 10 * 6 * 2
+    assert analyze(str(out), n_boot=100)["info"]["problems"] == 10
