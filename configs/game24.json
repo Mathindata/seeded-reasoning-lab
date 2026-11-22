@@ -1,0 +1,9 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "backend": "vllm",
+  "benchmark": "game24",
+  "n_problems": 100,
+  "k_samples": 8,
+  "max_tokens": 768,
+  "out_dir": "runs/game24"
+}

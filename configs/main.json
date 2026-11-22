@@ -1,0 +1,10 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "backend": "vllm",
+  "benchmark": "math500",
+  "n_problems": 200,
+  "levels": [3, 4, 5],
+  "k_samples": 8,
+  "max_tokens": 1024,
+  "out_dir": "runs/main"
+}

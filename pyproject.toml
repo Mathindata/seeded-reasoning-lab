@@ -1,0 +1,18 @@
+[project]
+name = "seeded-reasoning-lab"
+version = "0.1.0"
+description = "Do ideas from distant fields help a small LLM solve math problems? A controlled test with Qwen."
+requires-python = ">=3.10"
+dependencies = ["pandas>=2.0", "numpy>=1.24", "matplotlib>=3.7", "math-verify>=0.5", "datasets>=2.18"]
+
+[project.optional-dependencies]
+vllm = ["vllm"]
+hf = ["transformers>=4.43", "torch", "accelerate"]
+dev = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
