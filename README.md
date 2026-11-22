@@ -10,7 +10,9 @@ field matter, once the extra step and extra tokens are controlled for?
 > history). Phase 1: a strategy at the start does not help. Phase 2: the model's confidence does
 > flag wrong answers, but inserting a strategy at that moment makes things worse. Phase 3: going
 > back and resampling instead of adding text does no harm, but does not beat spending the same
-> tokens on extra whole answers. Results and verdicts are below.
+> tokens on extra whole answers. Phase 3b (offline): sending extra answers where confidence is low
+> is worse than spreading them evenly; disagreement between answers is the better guide.
+> Results and verdicts are below.
 
 ## Design
 
@@ -416,13 +418,50 @@ in Phase 2; the quantile sweep is reported as a whole curve, with no point picke
 14. **The sweep does not favor the low end.** Along `conf_q_vote3`, the gain over the frontier is not
     highest at the lowest q.
 
+## Phase 3b results
+
+Computed from the Phase 3 `seg_plain` log (1,584 answers, 198 problems), exact over all ordered
+draws, 95% cluster bootstrap over problems. The Phase 2 log gives the same numbers to within
+0.003 on every gain (`results/phase3b/`).
+
+<img src="docs/figures/phase3b_allocation.png" alt="Allocation of whole answers" width="100%">
+
+| Policy | Accuracy | Tokens vs one answer | Gain over the frontier |
+|---|---|---|---|
+| `rule_vote3` | 0.467 | 1.47x | -0.007 (-0.015 to -0.001) |
+| `rule_stop_vote3` | 0.468 | 1.59x | -0.010 (-0.019 to -0.001) |
+| `agree_2then4` | 0.540 | 3.40x | +0.012 (+0.007 to +0.017) |
+| `conf_q` sweep, q = 0.1 to 0.9 | 0.465 to 0.515 | 1.22x to 2.82x | -0.002 to +0.003, every interval includes 0 |
+
+**Verdicts**
+
+| Prediction | Result | Verdict |
+|---|---|---|
+| 12. Targeting the answers the rule flags does not pay | -0.007 and -0.010, both intervals below 0 | confirmed, and stronger than predicted: it is worse than spreading the same tokens evenly |
+| 13. Targeting disagreement pays | +0.012 (+0.007 to +0.017); same on the Phase 2 log | confirmed |
+| 14. The confidence sweep is not best at the low end | highest at q = 0.7 to 0.8 (+0.003), lowest q about 0 | confirmed, though no point on the sweep differs from 0 |
+
+**What this means.** The detector picks the problems the model almost never solves (accuracy
+0.17 where the rule fires), so extra answers sent there are mostly wasted, and they are taken
+from problems where a vote would have helped. Disagreement between two answers is the better
+signal of where to spend: it marks problems that are uncertain but solvable. For this model two
+answers agree only 38% of the time, so `agree_2then4` usually ends up drawing 4 answers; its gain
+is real but comes at 3.4x the tokens.
+
+**The four phases together.** For Qwen2.5-1.5B on MATH-500 levels 3 to 5, the model's own token
+confidence is a good detector of *hard problems* and a weak detector of *where an answer went
+wrong*. Every way of using it inside one answer (adding a strategy, backtracking, branching,
+restarting) fails to beat spending the same tokens on whole answers, and using it to target extra
+answers is worse than spreading them evenly. Agreement between answers, not confidence, is what
+tells where more samples help.
+
 ## Run it
 
 Kaggle (T4 x2, Internet on): `notebooks/run_kaggle.ipynb`. Local:
 
 ```bash
 pip install -e ".[dev,vllm]"          # or [hf] if vLLM does not run on your GPU
-pytest -q                             # 21 tests, use mock models
+pytest -q                             # 23 tests, use mock models
 python -m sr run --config configs/pilot.json      # 30 problems, k = 4
 python -m sr run --config configs/main.json       # 200 problems, k = 8
 python -m sr analyze --run runs/main
@@ -435,6 +474,8 @@ python -m sr p2-analyze --run runs/phase2
 python -m sr p3-run --config configs/phase3_s0.json     # and phase3_s1.json on the second GPU
 python -m sr merge --runs runs/phase3_s0 runs/phase3_s1 --out runs/phase3
 python -m sr p3-analyze --run runs/phase3
+# Phase 3b (offline, from any Phase 2 or 3 log)
+python -c "from sr.allocate import allocate; allocate('results/phase3/generations.jsonl.gz', 'results/phase3b/phase3_plain')"
 ```
 
 Kaggle notebooks: `notebooks/run_kaggle.ipynb` (Phase 1), `notebooks/phase2_kaggle.ipynb` (Phase 2),
@@ -452,9 +493,8 @@ Every generation (seed, strategy, full response, tokens, correctness) is logged 
    injecting text at that moment hurts.
 3. **Backtrack and resample**: done (above). No harm, no gain over whole answers at equal
    tokens. Low confidence is mostly a problem-level signal.
-   Next, cheap and offline from the logged samples: use the detector to decide how many whole
-   answers each problem gets (one if confident, more and a vote if not), judged on the same
-   frontier.
+   Phase 3b (offline): using the detector to decide how many whole answers a problem gets is
+   worse than spreading them evenly; disagreement is the better guide.
 4. **Stronger model**: repeat Phases 1 to 3 with a larger Qwen model, to see whether a model that
    can use advice benefits from it.
 5. **Abandoned branches**: study the discarded branches from Phase 3 and what carries over into
@@ -471,6 +511,8 @@ Every generation (seed, strategy, full response, tokens, correctness) is logged 
 - Shi et al., *Large Language Models Can Be Easily Distracted by Irrelevant Context*, ICML 2023.
 - Wang et al., *Thoughts Are All Over the Place: On the Underthinking of o1-Like LLMs*, 2025:
   frequent thought switching correlates with wrong answers.
+- Aggarwal et al., *Let's Sample Step by Step: Adaptive-Consistency for Efficient Reasoning and
+  Coding with LLMs*, EMNLP 2023: stop sampling once answers agree enough.
 - rSIM, *Incentivizing Reasoning Capabilities of LLMs via Reinforced Strategy Injection*
   (arXiv 2512.08300): a planner injects a strategy from a fixed set at each reasoning step.
   This project asks what happens when the strategy set is open and comes from other fields.
