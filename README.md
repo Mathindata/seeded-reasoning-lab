@@ -385,6 +385,37 @@ spending the same tokens on another whole answer. Local search among paths (`bra
 points the right way, but costs more than it returns. The useful role left for the detector is
 deciding *which problems* get extra whole answers.
 
+## Phase 3b: spend whole answers where they are needed (offline)
+
+**Question.** If the detector's job is to say which problems deserve more answers, does sending
+extra whole answers only to low-confidence answers beat giving every problem the same number?
+No new generation is needed: each problem already has 8 logged `seg_plain` answers, so any policy
+that draws up to 4 of them in order can be scored exactly, by averaging over every ordered draw.
+
+**Policies** (`src/sr/allocate.py`), all scored against the same whole-answer frontier as Phase 3:
+
+| Policy | Rule |
+|---|---|
+| `rule_vote3` | finish answer 1; if the Phase 2 rule fired on it, draw 2 more and take the majority of 3 |
+| `rule_stop_vote3` | if the rule fires on answer 1, stop it there and take the majority of 3 fresh answers |
+| `agree_2then4` | draw 2; if they agree, stop; else draw 2 more and take the majority of 4 (the stopping idea of Adaptive-Consistency, Aggarwal et al., EMNLP 2023) |
+| `conf_q_vote3` | like `rule_vote3`, but flag the answers whose lowest segment confidence is below the q-th quantile, for q from 0.1 to 1.0 (q = 1.0 is "3 answers for every problem") |
+
+Data: the Phase 3 `seg_plain` answers (primary) and the Phase 2 ones (check; 81% of their text
+is identical, so this is not an independent replication). The rule and its threshold were fixed
+in Phase 2; the quantile sweep is reported as a whole curve, with no point picked after the fact.
+
+### Phase 3b predictions (written before computing)
+
+12. **Targeting low confidence does not pay.** `rule_vote3` and `rule_stop_vote3` are not above the
+    frontier. The rule flags the hardest problems (accuracy about 0.17), where the model rarely
+    finds the right answer at all, so a vote has little to work with.
+13. **Targeting disagreement does pay.** `agree_2then4` is above the frontier at its token cost
+    (95% interval above 0): disagreement between two answers marks problems that are uncertain
+    but solvable, which is where voting helps.
+14. **The sweep does not favor the low end.** Along `conf_q_vote3`, the gain over the frontier is not
+    highest at the lowest q.
+
 ## Run it
 
 Kaggle (T4 x2, Internet on): `notebooks/run_kaggle.ipynb`. Local:
