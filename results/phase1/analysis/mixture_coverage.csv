@@ -1,0 +1,7 @@
+pool,coverage@8
+plain,0.702020202020202
+plain + noise_translated,0.6868686868686869
+plain + polya_translated,0.6818181818181818
+plain + near_translated,0.7171717171717171
+plain + far_translated,0.6919191919191919
+plain + far_raw,0.7070707070707071

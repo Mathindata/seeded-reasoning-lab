@@ -1,0 +1,6 @@
+condition,solved_only_with_seed,solved_only_plain,sign_test_p,distinct_answers_diff,ci_lo,ci_hi
+noise_translated,15,15,1.0,0.202,0.03,0.374
+polya_translated,13,16,0.711,0.242,0.056,0.429
+near_translated,16,9,0.23,0.273,0.081,0.465
+far_translated,11,13,0.839,0.182,-0.005,0.374
+far_raw,14,13,1.0,0.025,-0.157,0.197

@@ -1,0 +1,12 @@
+{
+  "problems": 198,
+  "samples_per_condition": 8,
+  "ks": [
+    1,
+    2,
+    4,
+    8
+  ],
+  "generations": 9504,
+  "tokens_total": 6525551
+}

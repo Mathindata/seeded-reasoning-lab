@@ -6,8 +6,9 @@ in Daoism, cooking or martial arts, does it solve more math problems than with a
 heuristic, a physics principle, or random words? And does the *distance* of the source
 field matter, once the extra step and extra tokens are controlled for?
 
-> Status: design, code and tests are done; predictions are written below **before** any real
-> run. Results will be added after the Kaggle run, whatever they show.
+> Status: Phase 1 is done. Result: a clean null. A one-sentence strategy at the start does not
+> help, whatever field it comes from. Predictions were written before the run (see git history);
+> results and verdicts are below. Phase 2 (confidence-triggered injection) is next.
 
 ## Design
 
@@ -50,6 +51,55 @@ more problems than 8 plain? All comparisons are paired by problem with 95% boots
    The test is `far_translated` against `noise_translated`, not against `plain`.
 
 A null result on prediction 3 is a valid result and will be reported as such.
+
+## Phase 1 results
+
+Qwen2.5-1.5B-Instruct (vLLM, fp16, 2 x T4), MATH-500 levels 3 to 5: 198 problems (66 per level)
+x 6 conditions x 8 samples = 9,504 generations, nothing missing. Truncation 2.5 to 3% and mean
+cost 662 to 702 tokens per sample in every condition, so no condition got more room or compute.
+Full log: `results/phase1/generations.jsonl.gz`; tables: `results/phase1/analysis/`.
+
+| Condition | pass@1 | pass@8 | Majority vote | Distinct answers | Tokens |
+|---|---|---|---|---|---|
+| plain | 0.448 | 0.702 | 0.540 | 3.92 | 662 |
+| noise_translated | 0.429 | 0.702 | 0.551 | 4.12 | 697 |
+| polya_translated | 0.419 | 0.687 | 0.566 | 4.16 | 702 |
+| near_translated | 0.433 | 0.737 | 0.571 | 4.19 | 697 |
+| far_translated | 0.426 | 0.692 | 0.566 | 4.10 | 695 |
+| far_raw | 0.448 | 0.707 | 0.576 | 3.94 | 667 |
+
+Differences from `plain`, paired by problem, 95% bootstrap intervals (5,000 resamples):
+
+<img src="docs/figures/phase1_diff_vs_plain.png" alt="Differences from plain" width="95%">
+
+**Verdicts on the predictions**
+
+| Prediction | Result | Verdict |
+|---|---|---|
+| 1. `far_raw` worse than `plain` (distraction) | pass@1 difference 0.000 (-0.022 to +0.023) | wrong: the model ignored the pasted idea |
+| 2. Translated conditions close to each other, noise included | all four within 1.5 points; far vs noise -0.003 (-0.028 to +0.023) | confirmed |
+| 3. Far seeds raise coverage over the noise control | pass@8 far vs noise -0.010 (-0.061 to +0.040); equal-budget mixture plain + far 0.692 vs plain 0.702 | not supported |
+
+**Other findings**
+
+- Adding a strategy sentence costs about 2 points of pass@1: all four translated conditions are
+  1.5 to 2.9 points below `plain`. Only Polya's interval excludes zero, and one such result in 15
+  comparisons is expected by chance, but the four point the same way.
+- Seeds add variety of the wrong kind: about 0.2 more distinct answers per problem, and the
+  extra answers are wrong ones (distinct wrong answers 3.25 for plain, 3.4 to 3.5 with seeds).
+- Problems solved only with a seed vs only without it are balanced: noise 15 vs 15, far 11 vs 13
+  (`rescues_and_diversity.csv`). Near-domain seeds show 16 vs 9 and the highest pass@8 (+0.035,
+  -0.015 to +0.086); not significant, kept as a hypothesis for a pre-registered follow-up.
+- A trap to avoid: all seeded conditions together solve 166 problems vs 139 for plain, but that
+  pools 40 samples per problem against 8. At equal budget there is no gain.
+
+**What this rules out.** For this model and setup, any benefit of start-of-problem seeds is
+smaller than about 2.5 points of pass@1 and 5 points of pass@8.
+
+**Why it may have failed, and what Phase 2 tests.** (a) The 1.5B coach writes generic advice;
+(b) the solver may barely use the hint; (c) a hint at the start cannot rescue a dead end that
+appears halfway through. Phase 2 injects the strategy at the moment the model's own confidence
+drops, and compares against injection at random moments.
 
 ## Changes after the pilot (30 problems, k = 4)
 

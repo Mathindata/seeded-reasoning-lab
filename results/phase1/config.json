@@ -1,0 +1,37 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "backend": "vllm",
+  "benchmark": "math500",
+  "n_problems": 200,
+  "levels": [
+    3,
+    4,
+    5
+  ],
+  "conditions": [
+    "plain",
+    "noise_translated",
+    "polya_translated",
+    "near_translated",
+    "far_translated",
+    "far_raw"
+  ],
+  "k_samples": 8,
+  "temperature": 0.7,
+  "top_p": 0.95,
+  "max_tokens": 2048,
+  "translate_max_tokens": 96,
+  "seed": 20261122,
+  "out_dir": "runs/main",
+  "chunk": 512,
+  "max_model_len": 4096,
+  "gpu_memory_utilization": 0.85,
+  "tensor_parallel_size": 1,
+  "hf_batch_size": 16,
+  "shard": 0,
+  "n_shards": 1,
+  "merged_from": [
+    "runs/main_s0",
+    "runs/main_s1"
+  ]
+}
