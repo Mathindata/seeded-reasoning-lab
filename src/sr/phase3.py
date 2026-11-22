@@ -449,27 +449,33 @@ def _plot_budget(budget: pd.DataFrame, curves: pd.DataFrame, out: Path) -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(6.4, 4))
-    ax.plot(curves["tokens"], curves["majority"], "o-", color="0.35", label="majority of N whole answers")
+    fig, (ax, bx) = plt.subplots(1, 2, figsize=(11, 4), gridspec_kw={"width_ratios": [1.3, 1]})
+    ax.plot(curves["tokens"], curves["majority"], "o-", color="0.3", label="majority of N whole answers")
     ax.plot(curves["tokens"], curves["best_conf"], "s--", color="0.6",
             label="most confident of N whole answers")
     for N, r in curves.iterrows():
         ax.annotate(f"N={N}", (r["tokens"], r["majority"]), textcoords="offset points",
-                    xytext=(4, -12), fontsize=8, color="0.35")
-    for _, r in budget.iterrows():
-        if r["condition"] == "seg_plain":
-            continue
-        ax.plot(r["tokens"], r["pass1"], "D", markersize=6)
-        ax.annotate(r["condition"], (r["tokens"], r["pass1"]), textcoords="offset points",
-                    xytext=(5, 3), fontsize=8)
-    ax.set_xlabel("Mean tokens generated per final answer (all discarded tokens included)")
+                    xytext=(-8, 8), fontsize=8, color="0.3")
+    b = budget[budget["condition"] != "seg_plain"].reset_index(drop=True)
+    markers = "DvP^Xh"
+    for i, r in b.iterrows():
+        ax.plot(r["tokens"], r["pass1"], markers[i % len(markers)], markersize=7, label=r["condition"])
+    ax.set_xlabel("Mean tokens generated per final answer (discarded tokens included)")
     ax.set_ylabel("Accuracy of the final answer")
-    ax.set_title("Same tokens, spent on the path or on more whole answers", fontsize=10)
-    ax.legend(fontsize=8, loc="lower right")
+    ax.set_title("Tokens spent on the path vs on more whole answers", fontsize=10)
+    ax.legend(fontsize=7.5, loc="lower right")
+    y = np.arange(len(b))[::-1]
+    bx.errorbar(b["gain_over_frontier"], y, xerr=[b["gain_over_frontier"] - b["ci_lo"],
+                                                   b["ci_hi"] - b["gain_over_frontier"]],
+                fmt="o", capsize=3, color="0.2")
+    bx.axvline(0, color="0.5", linewidth=1)
+    bx.set_yticks(y)
+    bx.set_yticklabels([f"{c} ({t:.2f}x tokens)" for c, t in zip(b["condition"], b["tokens_vs_plain"])])
+    bx.set_xlabel("Accuracy minus the frontier at equal tokens (95% CI)")
+    bx.set_title("Gain over spending the tokens on whole answers", fontsize=10)
     fig.tight_layout()
     fig.savefig(out / "budget.png", dpi=150)
     plt.close(fig)
-
 
 def phase2_baseline(generations_gz: str = "results/phase2/generations.jsonl.gz",
                     out_dir: str = "runs/phase2_as_phase3") -> dict:

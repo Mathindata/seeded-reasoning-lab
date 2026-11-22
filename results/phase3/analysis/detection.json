@@ -1,0 +1,21 @@
+{
+  "auroc_min_conf": 0.7471996118894206,
+  "auroc_min_conf_within_problem": 0.6369278510473235,
+  "accuracy_if_rule_fires": 0.17405063291139242,
+  "accuracy_if_rule_silent": 0.526813880126183,
+  "first_fire_step_counts": {
+    "1": 206,
+    "2": 50,
+    "3": 21,
+    "4": 17,
+    "5": 10,
+    "6": 5,
+    "7": 4,
+    "8": 1,
+    "9": 1,
+    "12": 1
+  },
+  "branch_events": 354,
+  "share_chosen_not_branch0": 0.7175141242937854,
+  "mean_conf_gain_chosen_vs_branch0": 0.04852158675629621
+}

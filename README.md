@@ -6,11 +6,11 @@ in Daoism, cooking or martial arts, does it solve more math problems than with a
 heuristic, a physics principle, or random words? And does the *distance* of the source
 field matter, once the extra step and extra tokens are controlled for?
 
-> Status: Phases 1 and 2 are done, each with predictions written before the run (see git
+> Status: Phases 1 to 3 are done, each with predictions written before the run (see git
 > history). Phase 1: a strategy at the start does not help. Phase 2: the model's confidence does
-> flag wrong answers, but inserting a strategy at that moment makes things worse. Phase 3
-> (backtrack and resample instead of adding text) is designed and its predictions are written;
-> the run is pending.
+> flag wrong answers, but inserting a strategy at that moment makes things worse. Phase 3: going
+> back and resampling instead of adding text does no harm, but does not beat spending the same
+> tokens on extra whole answers. Results and verdicts are below.
 
 ## Design
 
@@ -308,6 +308,83 @@ Outputs: `analysis/summary.csv`, `effects.csv` (paired and nested effects), `bud
 `whole_answer_curves.csv`, `pairing_check.csv`, `detection.json`, `budget.png`. Unchosen
 branches and dropped segments are logged for Roadmap item 5.
 
+## Phase 3 results
+
+Same 198 test problems, 5 conditions x 8 samples = 7,920 answers, nothing missing. Pairing check:
+the text was identical to `seg_plain` up to the first event for 91% (`bt_random`) to 97% (`backtrack`)
+of answers with an event. Reproducibility: with the same seeds, `seg_plain` wrote exactly the same
+text as in Phase 2 for 81% of answers, with the same correctness for 97.5% (pass@1 0.456 vs 0.458);
+the rest differ through GPU batch arithmetic. The detector replicates: AUROC 0.747 across all
+answers, 0.637 within a problem; accuracy 0.174 where the rule fires vs 0.527 where it is silent.
+Full log and tables: `results/phase3/`.
+
+| Condition | pass@1 | Answers with an event | Tokens generated | Tokens in final answer | Truncated |
+|---|---|---|---|---|---|
+| seg_plain | 0.456 | 0% | 669 | 669 | 2.7% |
+| backtrack | 0.456 | 20.0% | 745 | 672 | 2.8% |
+| branch4 | 0.462 | 19.9% | 900 | 674 | 2.7% |
+| restart | 0.465 | 19.9% | 775 | 671 | 2.9% |
+| bt_random | 0.453 | 16.2% | 712 | 663 | 2.7% |
+
+<img src="docs/figures/phase3_budget.png" alt="Phase 3 budget comparison" width="100%">
+
+**The decisive comparison.** Accuracy minus the whole-answer frontier at the same tokens
+(95% cluster bootstrap over problems):
+
+| Condition | Tokens vs seg_plain | Gain over the frontier |
+|---|---|---|
+| backtrack | 1.11x | -0.005 (-0.015 to +0.005) |
+| branch4 | 1.34x | -0.007 (-0.019 to +0.004) |
+| restart | 1.16x | +0.002 (-0.009 to +0.014) |
+| bt_random | 1.06x | -0.006 (-0.015 to +0.003) |
+| restart, simulated from the seg_plain log | 1.17x | -0.003 (-0.014 to +0.008) |
+
+No remedy beats the frontier. For reference, majority vote of 2 whole answers reaches 0.494 at 2x
+the tokens and of 4 answers 0.541 at 4x.
+
+Paired effects on the answers that had an event, against the same answers without it:
+
+| Condition | Accuracy without -> with | Difference (95% CI) | Rescues / breaks |
+|---|---|---|---|
+| backtrack | 0.177 -> 0.164 | -0.013 (-0.064 to +0.035) | 27 / 31 |
+| branch4 | 0.175 -> 0.187 | +0.013 (-0.037 to +0.067) | 30 / 26 |
+| restart | 0.175 -> 0.203 | +0.029 (-0.025 to +0.083) | 39 / 30 |
+| bt_random | 0.335 -> 0.300 | -0.035 (-0.082 to +0.012) | 15 / 24 |
+
+Nested comparisons (same answers, same first event):
+
+| Comparison | n | Difference (95% CI) | Rescues / breaks |
+|---|---|---|---|
+| branch4 vs backtrack (value of choosing among 4 paths) | 312 | +0.022 (-0.021 to +0.064) | 26 / 19 |
+| restart vs backtrack, rule fired late (backtrack keeps a prefix) | 106 | +0.085 (0.000 to +0.171) | 17 / 8 |
+| restart vs backtrack, rule fired early (both go back to the start) | 202 | +0.025 (+0.005 to +0.052) | 5 / 0 |
+
+In `branch4`, the chosen path was not branch 0 in 72% of 354 branch events, and its mean
+log-probability was higher by 0.049 per token, so the choice did act.
+
+**Verdicts on the predictions**
+
+| Prediction | Result | Verdict |
+|---|---|---|
+| 8. `bt_random` within 2 points of `seg_plain` | -0.003 (-0.012 to +0.006) | confirmed (it fired on 16% of answers, not 20%: the random rate was set for Phase 2's rule) |
+| 9. Online `restart` within 1.5 points of the simulated 0.460, not above the frontier | 0.465; +0.002 (-0.009 to +0.014) | confirmed |
+| 10. `backtrack` gains 0 to +5 points on answers with an event, not above the frontier; no detectable difference from `restart` on late fires | -0.013 (-0.064 to +0.035); -0.005 vs frontier; late fires: restart better by +0.085 (0.000 to +0.171) | frontier part confirmed; no gain at all; the late-fire difference is borderline and points against the prediction |
+| 11. `branch4` beats `backtrack` on the same event; on or below the frontier | +0.022 (-0.021 to +0.064); -0.007 vs frontier at 1.34x tokens | direction right but not significant; frontier part confirmed |
+
+**What the late fires suggest** (a pre-planned comparison, but small and borderline, so read it as
+a hint). When the rule fires late, keeping the earlier text and resampling only the 2 low segments
+lowers accuracy slightly (0.151 -> 0.113), while starting over raises it (0.151 -> 0.198). The same
+pattern shows when the rule fires early: `restart` and `backtrack` differ only after a second event
+(a second drop in confidence), and there `restart` wins 5 to 0. Both point the same way: the low
+segments are a symptom, and the wrong turn usually happened before them.
+
+**What this means.** Three phases, one consistent picture for this 1.5B model. Its confidence
+mostly says how hard the problem is, and only weakly where a given answer went wrong. So nothing
+done to one answer, whether adding a strategy (Phase 2) or changing its path (Phase 3), beats
+spending the same tokens on another whole answer. Local search among paths (`branch4`) acts and
+points the right way, but costs more than it returns. The useful role left for the detector is
+deciding *which problems* get extra whole answers.
+
 ## Run it
 
 Kaggle (T4 x2, Internet on): `notebooks/run_kaggle.ipynb`. Local:
@@ -342,9 +419,11 @@ Every generation (seed, strategy, full response, tokens, correctness) is logged 
 1. **Static seeds**: done, null result (above).
 2. **Controller with text injection**: done (above). Confidence detects failing answers;
    injecting text at that moment hurts.
-3. **Backtrack and resample**: designed, predictions written (above), run pending. Same
-   detector, the remedy changes the path instead of the prompt; judged against whole answers at
-   equal tokens.
+3. **Backtrack and resample**: done (above). No harm, no gain over whole answers at equal
+   tokens. Low confidence is mostly a problem-level signal.
+   Next, cheap and offline from the logged samples: use the detector to decide how many whole
+   answers each problem gets (one if confident, more and a vote if not), judged on the same
+   frontier.
 4. **Stronger model**: repeat Phases 1 to 3 with a larger Qwen model, to see whether a model that
    can use advice benefits from it.
 5. **Abandoned branches**: study the discarded branches from Phase 3 and what carries over into
