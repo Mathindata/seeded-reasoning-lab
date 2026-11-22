@@ -11,7 +11,8 @@ from .run import Config, merge, run
 
 def main():
     ap = argparse.ArgumentParser(prog="sr")
-    ap.add_argument("cmd", choices=["run", "analyze", "merge", "p2-calibrate", "p2-run", "p2-analyze"])
+    ap.add_argument("cmd", choices=["run", "analyze", "merge", "p2-calibrate", "p2-run", "p2-analyze",
+                                    "p3-run", "p3-analyze"])
     ap.add_argument("--runs", nargs="*", default=[], help="shard run directories to merge")
     ap.add_argument("--out", default="runs/main", help="merged run directory")
     ap.add_argument("--config", default="configs/pilot.json")
@@ -21,6 +22,8 @@ def main():
     a = ap.parse_args()
     if a.cmd.startswith("p2-"):
         return phase2_main(a)
+    if a.cmd.startswith("p3-"):
+        return phase3_main(a)
     if a.cmd == "merge":
         print("merged into", merge(a.runs, a.out))
         return
@@ -56,6 +59,22 @@ def phase2_main(a):
         phase2.calibrate(cfg, backend, calib)
     else:
         phase2.run_main(cfg, backend, test)
+
+
+def phase3_main(a):
+    from . import data, phase3
+    if a.cmd == "p3-analyze":
+        res = phase3.analyze3(a.run)
+        with pd.option_context("display.width", 200, "display.precision", 3):
+            print(res["summary"]); print(res["effects"].to_string(index=False))
+            print(res["budget"].to_string(index=False)); print(res["curves"])
+            print(res["pairing"].to_string(index=False)); print(res["detection"])
+        return
+    cfg = phase3.Phase3Config.load(a.config)
+    cfg.backend = a.backend or cfg.backend
+    cfg.model = a.model or cfg.model
+    test = data.load_math500(cfg.n_test, cfg.levels, cfg.seed)
+    phase3.run_main3(cfg, make_backend(cfg), test)
 
 
 if __name__ == "__main__":

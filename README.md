@@ -8,8 +8,9 @@ field matter, once the extra step and extra tokens are controlled for?
 
 > Status: Phases 1 and 2 are done, each with predictions written before the run (see git
 > history). Phase 1: a strategy at the start does not help. Phase 2: the model's confidence does
-> flag wrong answers, but inserting a strategy at that moment makes things worse. Results and
-> verdicts are below.
+> flag wrong answers, but inserting a strategy at that moment makes things worse. Phase 3
+> (backtrack and resample instead of adding text) is designed and its predictions are written;
+> the run is pending.
 
 ## Design
 
@@ -226,13 +227,94 @@ Follow-up checks were added after the run and are reported as such:
 `results/phase2/analysis/checks_by_condition.csv`, `content_vs_generic.csv`, `timing.json`
 (`python -c "from sr.phase2 import extra_checks; extra_checks('runs/phase2')"`).
 
+## Phase 3: change the path, not the prompt
+
+**Question.** Phase 2 showed that the detector works and that adding text is the wrong remedy.
+If the controller instead goes back and samples again when confidence drops, does that beat
+simply spending the same tokens on more whole answers?
+
+### What the Phase 2 log already says (analysis of existing data, before any Phase 3 run)
+
+These numbers come from the `seg_plain` answers of Phase 2 and shaped the design below
+(`python -c "from sr.phase3 import phase2_baseline; phase2_baseline()"`).
+
+- **The detector mostly recognizes hard problems.** Across all answers, the lowest segment
+  confidence separates wrong from right answers with AUROC 0.740. Comparing only answers to the
+  *same* problem, the AUROC drops to 0.615. A remedy that samples again can only use the second
+  part: it cannot make the problem easier.
+- **The rule fires early.** 65% of first fires (210 of 321) come after the second segment, so the
+  2 low segments are the first 256 tokens of the answer. For those, going back 2 segments is the
+  same as starting over.
+- **Starting over does not pay.** Simulating "restart when the rule fires, at most twice" from the
+  logged samples of the same problem gives accuracy 0.460 vs 0.458, for 16% more tokens.
+- **The bar to beat.** Spending tokens on whole answers instead: majority vote of 2 answers gives
+  0.490 for 2x the tokens, of 4 answers 0.539 for 4x; keeping the most confident of N answers
+  stops improving near 0.49. Against this frontier, the simulated restart is -0.4 points
+  (-1.3 to +0.6) at its token cost.
+
+### Design
+
+Same 198 test problems, k = 8, the same threshold tau and hysteresis as Phase 2 (fixed on held-out
+problems, `results/phase2/calibration.json`). No text is ever added. When the rule fires
+(`src/sr/phase3.py`):
+
+| Condition | What happens | Role |
+|---|---|---|
+| `seg_plain` | nothing | control, and the source of the whole-answer frontier |
+| `backtrack` | drop the 2 low segments, sample them again with a new random seed | local resample |
+| `branch4` | drop them, sample 4 candidate continuations of 2 segments, keep the most confident | local search: the "choose a new path" half of the original idea |
+| `restart` | drop the whole answer and start again | global resample, detector-driven |
+| `bt_random` | backtrack at random moments, at the rate the rule fires | timing control |
+
+At most 2 events per answer, as in Phase 2. **Every generated token is counted**, including
+dropped segments and unchosen branches. Final answers are capped at 2,048 tokens and the total
+per answer at 4,096.
+
+**Paired and nested by construction.** All conditions use the same per-step random seeds, so they
+write the same text until the first event, and the confidence-driven ones have their first event
+at the same moment. Branch 0 of `branch4` uses the same seeds as `backtrack` after the event, so
+`branch4` is `backtrack` plus 3 extra candidates and a choice. Differences between them measure
+the choice alone.
+
+**The decisive comparison: equal tokens.** For each condition, accuracy minus the whole-answer
+frontier at the same mean tokens. The frontier is built from the `seg_plain` samples of the same
+run: for N = 1 to 4 whole answers, the better of majority vote and "keep the most confident"
+(exact over all subsets of the 8 samples), linear in between (mixing N and N + 1 answers is a
+valid policy). Picking the better baseline after the fact favors the baseline, which is the safe
+direction. Cluster bootstrap over problems. A remedy is worth keeping only if its gain over the
+frontier has a 95% interval above 0.
+
+### Phase 3 predictions (written before the run)
+
+8. **Sanity: random backtracking does nothing.** `bt_random` is within 2 points of `seg_plain`
+   overall. Going back at a random moment just draws another sample of the same path; the only
+   expected bias is a slight one toward shorter answers.
+9. **Restart matches the simulation.** Online `restart` has pass@1 within 1.5 points of the
+   simulated 0.460, and its gain over the frontier is not above 0.
+10. **Local resampling helps a little, not enough.** On answers with an event, `backtrack` gains
+    between 0 and +5 points over the same answers without it, but its gain over the frontier is
+    not above 0. When the rule fires late enough that `backtrack` keeps a prefix, it does not
+    differ detectably from `restart` (few such answers; stated so the result is not over-read).
+11. **Choosing among branches helps, but we give it less than even odds to pay for itself.**
+    On the same first event, `branch4` beats `backtrack`, since the within-problem signal
+    (AUROC 0.615) is weak but real. It costs about 1.4 to 1.6x the tokens of `seg_plain`, and we
+    expect it to land on or below the frontier.
+
+If all four hold, the conclusion is that for this model the confidence signal is mostly about
+the problem, not the path, and the right use of it is to decide where to spend extra whole
+answers, not to repair one answer.
+
+Outputs: `analysis/summary.csv`, `effects.csv` (paired and nested effects), `budget.csv`,
+`whole_answer_curves.csv`, `pairing_check.csv`, `detection.json`, `budget.png`. Unchosen
+branches and dropped segments are logged for Roadmap item 5.
+
 ## Run it
 
 Kaggle (T4 x2, Internet on): `notebooks/run_kaggle.ipynb`. Local:
 
 ```bash
 pip install -e ".[dev,vllm]"          # or [hf] if vLLM does not run on your GPU
-pytest -q                             # 14 tests, use mock models
+pytest -q                             # 21 tests, use mock models
 python -m sr run --config configs/pilot.json      # 30 problems, k = 4
 python -m sr run --config configs/main.json       # 200 problems, k = 8
 python -m sr analyze --run runs/main
@@ -241,9 +323,14 @@ python -m sr p2-calibrate --config configs/phase2_calib.json
 python -m sr p2-run --config configs/phase2_s0.json     # and phase2_s1.json on the second GPU
 python -m sr merge --runs runs/phase2_s0 runs/phase2_s1 --out runs/phase2
 python -m sr p2-analyze --run runs/phase2
+# Phase 3 (uses the Phase 2 threshold, no calibration step)
+python -m sr p3-run --config configs/phase3_s0.json     # and phase3_s1.json on the second GPU
+python -m sr merge --runs runs/phase3_s0 runs/phase3_s1 --out runs/phase3
+python -m sr p3-analyze --run runs/phase3
 ```
 
-Kaggle notebooks: `notebooks/run_kaggle.ipynb` (Phase 1), `notebooks/phase2_kaggle.ipynb` (Phase 2).
+Kaggle notebooks: `notebooks/run_kaggle.ipynb` (Phase 1), `notebooks/phase2_kaggle.ipynb` (Phase 2),
+`notebooks/phase3_kaggle.ipynb` (Phase 3).
 
 Compute: the main run is 9,600 solve generations (up to 1,024 tokens) plus 6,400 short
 strategy generations (solve outputs up to 2,048 tokens). Speed is measured in the pilot; the run resumes where it stopped.
@@ -255,10 +342,9 @@ Every generation (seed, strategy, full response, tokens, correctness) is logged 
 1. **Static seeds**: done, null result (above).
 2. **Controller with text injection**: done (above). Confidence detects failing answers;
    injecting text at that moment hurts.
-3. **Backtrack and resample** (next): when the rule fires, discard the last segments and
-   resample from an earlier checkpoint with a new random seed, keeping the branch whose confidence
-   recovers. Same detector, different remedy; compare against resampling the whole answer at the
-   same total token budget.
+3. **Backtrack and resample**: designed, predictions written (above), run pending. Same
+   detector, the remedy changes the path instead of the prompt; judged against whole answers at
+   equal tokens.
 4. **Stronger model**: repeat Phases 1 to 3 with a larger Qwen model, to see whether a model that
    can use advice benefits from it.
 5. **Abandoned branches**: study the discarded branches from Phase 3 and what carries over into

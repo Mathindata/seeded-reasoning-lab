@@ -1,0 +1,21 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "backend": "vllm",
+  "levels": [
+    3,
+    4,
+    5
+  ],
+  "n_test": 200,
+  "k_samples": 8,
+  "seg_tokens": 128,
+  "max_tokens": 2048,
+  "max_total_tokens": 4096,
+  "depth": 2,
+  "n_branches": 4,
+  "calibration_file": "results/phase2/calibration.json",
+  "prefix_caching": true,
+  "shard": 1,
+  "n_shards": 2,
+  "out_dir": "runs/phase3_s1"
+}

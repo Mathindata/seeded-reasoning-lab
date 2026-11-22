@@ -180,6 +180,41 @@ class MockBackend:
         return res
 
 
+class MockPathBackend(MockBackend):
+    """Phase 3 mock with a planted truth that lives in the path, not in the problem.
+    Every segment is drawn from its own seed: 'bad' with probability p_bad (confidence about
+    -2.5 per token), else 'good' (about -0.3). After `n_lines` segments the answer is written;
+    it is right only if no bad segment is left in the text. So discarding a bad segment and
+    resampling it can rescue an answer, and choosing the most confident of several branches
+    rescues it more often."""
+
+    def __init__(self, seed: int, answers: dict[str, str] | None = None, p_bad: float = 0.25,
+                 n_lines: int = 5):
+        super().__init__(seed, answers)
+        self.p_bad, self.n_lines = p_bad, n_lines
+
+    def continue_raw(self, prompts, max_tokens, temperature, top_p, seeds):
+        res = []
+        for prompt, s in zip(prompts, seeds):
+            rng = random.Random(int(s))
+            body = prompt.split("<ASSIST>", 1)[1]
+            key = next((k for k in self.answers if k in prompt), None)
+            gold = self.answers.get(key, "0")
+            bad = rng.random() < self.p_bad
+            conf = -2.5 + rng.random() * 0.2 if bad else -0.3 - rng.random() * 0.2
+            n = body.count("\nline")
+            tag = "B" if bad else "G"
+            if n >= self.n_lines:
+                ok = " B" not in body and not bad
+                ans = gold if ok else str(int(gold) + 1)
+                res.append({"text": f"\nline end {tag} \\boxed{{{ans}}}", "n_tokens": 8,
+                            "sum_logprob": conf * 8, "finished": True})
+            else:
+                res.append({"text": f"\nline {n} {tag}", "n_tokens": 8, "sum_logprob": conf * 8,
+                            "finished": False})
+        return res
+
+
 def make_backend(cfg, answers=None, p_correct=None):
     if cfg.backend == "vllm":
         return VLLMBackend(cfg.model, cfg.seed, cfg.max_model_len, cfg.gpu_memory_utilization,
